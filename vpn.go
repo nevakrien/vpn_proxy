@@ -38,7 +38,7 @@ func (c *OpenVPNClient) Start(configPath string) error {
 	}
 
 	// Start a new OpenVPN process
-	c.cmd = exec.Command("openvpn", "--config", configPath, "--daemon")
+	c.cmd = exec.Command("openvpn", "--config", configPath)
 	//c.config = configPath // Store the config path if needed
 
 	if err := c.cmd.Start(); err != nil {
