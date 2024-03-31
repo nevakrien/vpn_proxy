@@ -7,10 +7,14 @@ import (
 	"path/filepath"
 	"os"
 	"strconv"
-	//"sync"
+	
+	"sync"
+	"context"
+	"errors"
 
 	"github.com/elazarl/goproxy"
 	"net"
+	"time"
 )
 
 var AUTH_PATH=filepath.Join(".","dockers","proxy0","auth.txt")
@@ -47,12 +51,75 @@ func setupVars(){
 
 type onCloseConn struct {
     net.Conn
+    lastActivity time.Time
+    idleFlag     bool
+    mutex        sync.Mutex
+    ctx          context.Context
+    cancel       context.CancelFunc
 }
+
+func (c *onCloseConn) MarkActivity() {
+    c.mutex.Lock()
+    defer c.mutex.Unlock()
+    c.lastActivity = time.Now()
+    c.idleFlag = false
+}
+
+func (c *onCloseConn) CheckIdle(timeout time.Duration) {
+    c.mutex.Lock()
+    defer c.mutex.Unlock()
+    if time.Since(c.lastActivity) > timeout {
+        c.idleFlag = true
+    }
+}
+
+func (c *onCloseConn) IsIdle() bool {
+    c.mutex.Lock()
+    defer c.mutex.Unlock()
+    return c.idleFlag
+}
+
+func (c *onCloseConn) Write(b []byte) (n int, err error) {
+    if c.IsIdle() {
+        // Handle attempt to write to an idle connection
+        return 0, errors.New("attempt to write to idle connection")
+    }
+    n, err = c.Conn.Write(b)
+    if err == nil {
+        c.MarkActivity()
+    }
+    return n, err
+}
+
 
 func (c *onCloseConn) Close() error {
     log.Println("Connection closed")
     return c.Conn.Close()
 }
+
+func (c *onCloseConn) idleChecker(idleTimeout time.Duration) {
+    checkInterval := time.NewTicker(100 * time.Millisecond) // Adjust check frequency as needed
+    defer checkInterval.Stop()
+
+    for {
+        select {
+        case <-c.ctx.Done():
+            // Context canceled, stop the goroutine
+            return
+        case <-checkInterval.C:
+            // Perform idle check
+            c.mutex.Lock()
+            if time.Since(c.lastActivity) > idleTimeout && !c.idleFlag {
+                log.Println("Connection marked as idle")
+                c.idleFlag = true
+                c.mutex.Unlock()
+                return // Optionally close the connection here or take other action
+            }
+            c.mutex.Unlock()
+        }
+    }
+}
+
 
 func setupProxy() {//lock *sync.RWMutex
 	proxy := goproxy.NewProxyHttpServer()
@@ -65,24 +132,30 @@ func setupProxy() {//lock *sync.RWMutex
             return nil, err
         }
 
+        ctx, cancel := context.WithCancel(context.Background())
+	    wrappedConn := &onCloseConn{
+	        Conn:        conn,
+	        lastActivity: time.Now(),
+	        ctx:          ctx,
+	        cancel:       cancel,
+	    }
+
         log.Println("Connection made (TCP)")
-        
-        // // Attempt to assert the net.Conn to a *net.TCPConn to access TCP-specific methods
-	    // tcpConn, ok := conn.(*net.TCPConn)
-	    // if err == nil && ok {
-	    //     // Successfully asserted to *net.TCPConn; can set keep-alive options
-	    //     tcpConn.SetKeepAlive(false)
-	    // } else {
-	    //     // The assertion failed; log the occurrence
-	    //     log.Println("weirdness in keepalive")
-	    // }
+        go wrappedConn.idleChecker(1000 * time.Millisecond) // Adjust timeout as needed
 
-
-        return &onCloseConn{Conn: conn}, nil
+        //return &onCloseConn{Conn: conn}, nil
+        return wrappedConn, nil
     }
 
     // Set the custom dial function for HTTP traffic
-    proxy.Tr = &http.Transport{Dial: customDial}//,DisableKeepAlives :true}
+    proxy.Tr = &http.Transport{
+    	Dial: customDial,
+    	DisableKeepAlives :true,
+    	MaxIdleConns :0,
+    	MaxIdleConnsPerHost: 0, 
+    	IdleConnTimeout:     1 * time.Millisecond,
+    }
+
     proxy.ConnectDial = customDial
 
 	//proxy.OnRequest().HandleConnect(goproxy.AlwaysMitm)
@@ -102,6 +175,15 @@ func setupProxy() {//lock *sync.RWMutex
 	})
 
 	log.Println("Starting proxy server on :8080...")
+	// go func() {
+	// 	for {
+	// 		time.Sleep(1 * time.Second) // Adjust the interval as needed
+	// 		if proxy.Tr != nil {
+	// 			proxy.Tr.CloseIdleConnections()
+	// 			log.Println("Idle connections closed")
+	// 		}
+	// 	}
+	// }()
 	log.Fatal(http.ListenAndServe(":8080", proxy))
 }
 

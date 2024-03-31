@@ -7,8 +7,8 @@ import (
 	"net/url"
 	"os"
 	//"strings"
-	"net"
-	"time"
+	//"net"
+	//"time"
 )
 
 
@@ -51,7 +51,7 @@ func main() {
 	}
 
 	//set_proxy(stopCommandStr)
-	testHangUp(proxyURL)
+	//testHangUp(proxyURL)
 }
 
 func set_proxy(commandStr string){//,proxyStr string) (*url.URL){
@@ -121,65 +121,65 @@ func fetchContent(urlStr string, transport *http.Transport) (string, error) {
 }
 
 
-func startLocalTCPServer() {
-    listener, err := net.Listen("tcp", "localhost:9999")
-    if err != nil {
-        fmt.Println("Failed to start server:", err)
-        os.Exit(1)
-    }
-    defer listener.Close()
-    fmt.Println("Server listening on localhost:9999")
+// func startLocalTCPServer() {
+//     listener, err := net.Listen("tcp", "localhost:9999")
+//     if err != nil {
+//         fmt.Println("Failed to start server:", err)
+//         os.Exit(1)
+//     }
+//     defer listener.Close()
+//     fmt.Println("Server listening on localhost:9999")
 
-    // Accept a single connection then close it
-    conn, err := listener.Accept()
-    if err != nil {
-        fmt.Println("Failed to accept connection:", err)
-        return
-    }
-    fmt.Println("Accepted connection from:", conn.RemoteAddr().String())
-    conn.Close()
-}
+//     // Accept a single connection then close it
+//     conn, err := listener.Accept()
+//     if err != nil {
+//         fmt.Println("Failed to accept connection:", err)
+//         return
+//     }
+//     fmt.Println("Accepted connection from:", conn.RemoteAddr().String())
+//     conn.Close()
+// }
 
-func openAndCloseTCPConnectionThroughProxy(proxyURL *url.URL, targetAddr string) error {
-    // This is the proxy address
-    proxyAddr := proxyURL.Host
+// func openAndCloseTCPConnectionThroughProxy(proxyURL *url.URL, targetAddr string) error {
+//     // This is the proxy address
+//     proxyAddr := proxyURL.Host
 
-    // Directly dial the proxy
-    conn, err := net.Dial("tcp", proxyAddr)
-    if err != nil {
-        return fmt.Errorf("failed to dial proxy: %v", err)
-    }
-    defer conn.Close()
+//     // Directly dial the proxy
+//     conn, err := net.Dial("tcp", proxyAddr)
+//     if err != nil {
+//         return fmt.Errorf("failed to dial proxy: %v", err)
+//     }
+//     defer conn.Close()
 
-    // Send a CONNECT request to the proxy for the target address
-    fmt.Fprintf(conn, "CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n", targetAddr, targetAddr)
+//     // Send a CONNECT request to the proxy for the target address
+//     fmt.Fprintf(conn, "CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n", targetAddr, targetAddr)
 
-    // Read the proxy's response
-    buffer := make([]byte, 4096)
-    _, err = conn.Read(buffer)
-    if err != nil {
-        return fmt.Errorf("failed to read response from proxy: %v", err)
-    }
-    fmt.Println("Opened and closed a TCP connection through the proxy to:", targetAddr)
+//     // Read the proxy's response
+//     buffer := make([]byte, 4096)
+//     _, err = conn.Read(buffer)
+//     if err != nil {
+//         return fmt.Errorf("failed to read response from proxy: %v", err)
+//     }
+//     fmt.Println("Opened and closed a TCP connection through the proxy to:", targetAddr)
 
-    return nil
-}
+//     return nil
+// }
 
-func testHangUp(proxyURL *url.URL) {
-    // Start the local TCP server in a goroutine
-    go startLocalTCPServer()
+// func testHangUp(proxyURL *url.URL) {
+//     // Start the local TCP server in a goroutine
+//     go startLocalTCPServer()
 
-    // Small delay to ensure the server starts before the client tries to connect
-    time.Sleep(1 * time.Second)
+//     // Small delay to ensure the server starts before the client tries to connect
+//     time.Sleep(1 * time.Second)
 
-    // Target address is the local server
-    targetAddr := "localhost:9999"
+//     // Target address is the local server
+//     targetAddr := "localhost:9999"
 
-    // Connect to the local server through the proxy and close the connection
-    err := openAndCloseTCPConnectionThroughProxy(proxyURL, targetAddr)
-    if err != nil {
-        fmt.Println("Error:", err)
-        os.Exit(1)
-    }
+//     // Connect to the local server through the proxy and close the connection
+//     err := openAndCloseTCPConnectionThroughProxy(proxyURL, targetAddr)
+//     if err != nil {
+//         fmt.Println("Error:", err)
+//         os.Exit(1)
+//     }
 
-}
+// }
