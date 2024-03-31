@@ -23,29 +23,14 @@ func main() {
 	srcDir := "/etc/openvpn/ovpn_tcp/"
 	authFilePath := "vpn-auth.txt"
 	destBaseDir := "dockers" // Update this path
-	
-	auth := []byte{}
-	if authFilePath != "" {
-	    // Attempt to read the file
-	    fileContent, err := os.ReadFile(authFilePath)
-	    if err != nil {
-	        // Handle errors, such as file not found
-	        fmt.Printf("Failed to open auth file %s: %v\n", authFilePath, err)
-	        return
-	    }
 
-	    // Convert the file content into a string and trim any leading/trailing whitespace
-	    authString := strings.TrimSpace(string(fileContent))
+	cwd, err := os.Getwd()
+    if err != nil {
+        fmt.Println("Failed to get current working directory:", err)
+        return
+    }
 
-	    // Wrap the auth content with the <auth-user-pass> tags
-	    taggedAuth := fmt.Sprintf("\n<auth-user-pass>\n%s\n</auth-user-pass>\n", authString)
-
-	    // Convert the taggedAuth string back to a byte slice
-	    auth = []byte(taggedAuth)
-	}
-
-
-
+    authFilePath = filepath.Join(cwd, authFilePath)
 
 	// Optionally clear existing config files
 	if clearProxies {
@@ -54,9 +39,14 @@ func main() {
 
 	// Create directories and nested ovpn_configs directories
 	for i := 0; i < numDirectories; i++ {
-		dirPath := filepath.Join(destBaseDir, fmt.Sprintf("proxy%d/ovpn_configs", i))
+		dirPath := filepath.Join(destBaseDir, fmt.Sprintf("proxy%d", i),"ovpn_configs")
 		if err := os.MkdirAll(dirPath, 0755); err != nil {
 			fmt.Printf("Failed to create directory %s: %v\n", dirPath, err)
+			return
+		}
+		dirPath=filepath.Join(destBaseDir, fmt.Sprintf("proxy%d", i),"auth.txt")
+		if err := copyFile(authFilePath,dirPath); err != nil {
+			fmt.Printf("Failed to create auth for %s: %v\n", dirPath, err)
 			return
 		}
 	}
@@ -78,7 +68,7 @@ func main() {
 		srcPath := filepath.Join(srcDir, file.Name())
 		destPath := filepath.Join(destDir, file.Name())
 
-		if err := copyFile(srcPath, destPath,auth); err != nil {
+		if err := copyFile(srcPath, destPath); err != nil {
 			fmt.Printf("Failed to copy %s to %s: %v\n", file.Name(), destPath, err)
 		} else {
 			fmt.Printf("Copied %s to %s\n", file.Name(), destPath)
@@ -118,7 +108,7 @@ func hashCountryCode(countryCode string) int {
 }
 
 // copyFile copies a file from src to dst
-func copyFile(src, dst string, auth []byte) error {
+func copyFile(src, dst string) error {
 	sourceFile, err := os.Open(src)
 	if err != nil {
 		return err
@@ -132,19 +122,6 @@ func copyFile(src, dst string, auth []byte) error {
 	defer destFile.Close()
 
 	_, err = io.Copy(destFile, sourceFile)
-	
-	// If auth is not empty, append it to the destination file
-	if len(auth) > 0 {
-		// _, err = destFile.Write([]byte("\n"))
-		// if err != nil {
-		//     return err
-		// }
-
-		_, err = destFile.Write(auth)
-		if err != nil {
-			return err
-		}
-	}
 
 	return err
 }

@@ -4,7 +4,13 @@ import (
 	"log"
 	"os/exec"
 	"sync"
+	"os"
+	"strings"
+	"bufio"
+	"fmt"
 )
+
+const OPENVPN_OK_STRING="Initialization Sequence Completed"
 
 // VPNClient defines the interface for managing VPN connections
 type VPNClient interface {
@@ -15,17 +21,20 @@ type VPNClient interface {
 // OpenVPNClient implements VPNClient for managing OpenVPN connections
 type OpenVPNClient struct {
 	cmd    *exec.Cmd
-	mutex  sync.Mutex // To safely access the cmd
-	//config string     // Store the config path if needed
+	mutex  sync.RWMutex // To safely access the cmd
+	authPath string     
 }
 
 // NewOpenVPNClient creates a new OpenVPNClient instance
-func NewOpenVPNClient() *OpenVPNClient {
-	return &OpenVPNClient{}
+func NewOpenVPNClient(authPath string) *OpenVPNClient {
+	return &OpenVPNClient{
+        authPath: authPath,
+    }
 }
 
 // Start starts the VPN connection using the provided configuration
 func (c *OpenVPNClient) Start(configPath string) error {
+	fmt.Println("setting VPN...")
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 
@@ -38,11 +47,33 @@ func (c *OpenVPNClient) Start(configPath string) error {
 	}
 
 	// Start a new OpenVPN process
-	c.cmd = exec.Command("openvpn", "--config", configPath)
-	//c.config = configPath // Store the config path if needed
+	c.cmd = exec.Command("openvpn", "--config", configPath,"--auth-user-pass",c.authPath)
+	//redirect outputs
+	//c.cmd.Stdout = os.Stdout //moved to scanner
+    c.cmd.Stderr = os.Stderr
 
-	if err := c.cmd.Start(); err != nil {
-		return err
+    cliPipe, err := c.cmd.StdoutPipe()
+
+    if err != nil {
+        return err
+    }
+
+    if err := c.cmd.Start(); err != nil {
+        return err
+    }
+
+	//wait for the OK
+	scanner := bufio.NewScanner(cliPipe)
+    for scanner.Scan() {
+        //fmt.Println(scanner.Text()) // Debug: Print every line to verify output
+        if strings.Contains(scanner.Text(), OPENVPN_OK_STRING) {
+            fmt.Println("VPN active")
+            break
+        }
+    }
+
+    if err := scanner.Err(); err != nil {
+	    return fmt.Errorf("error reading openvpn output: %w", err)
 	}
 
 	return nil

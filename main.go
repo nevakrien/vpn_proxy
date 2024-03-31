@@ -7,20 +7,25 @@ import (
 	"path/filepath"
 	"os"
 	"strconv"
+	//"sync"
 
 	"github.com/elazarl/goproxy"
+	"net"
 )
 
-//const CONFIGS_DIR=filepath.Join("external","ovpn_configs")
-var CONFIGS_DIR=filepath.Join("dockers","proxy0","ovpn_configs")
+var AUTH_PATH=filepath.Join(".","dockers","proxy0","auth.txt")
+//var CONFIGS_DIR=filepath.Join("external","ovpn_configs")
+var CONFIGS_DIR=filepath.Join(".","dockers","proxy0","ovpn_configs")
 var configPaths []string
 var cur_config=-1
 
 func main() {
 	setupVars()
-	go func(){setupProxy()}()
+	//go func(){setupProxy()}()
 	setupCommandServer()
+	setupProxy()
 }
+
 
 func setupVars(){
 	//vpn configs
@@ -40,11 +45,47 @@ func setupVars(){
     }
 }
 
-func setupProxy() {
+type onCloseConn struct {
+    net.Conn
+}
+
+func (c *onCloseConn) Close() error {
+    log.Println("Connection closed")
+    return c.Conn.Close()
+}
+
+func setupProxy() {//lock *sync.RWMutex
 	proxy := goproxy.NewProxyHttpServer()
 	//proxy.OnRequest().HandleConnect(goproxy.AlwaysMitm)
 	proxy.Verbose = true // Set to true to see all proxy traffic
 
+	customDial := func(network, addr string) (net.Conn, error) {
+        conn, err := net.Dial(network, addr)
+        if err != nil {
+            return nil, err
+        }
+
+        log.Println("Connection made (TCP)")
+        
+        // // Attempt to assert the net.Conn to a *net.TCPConn to access TCP-specific methods
+	    // tcpConn, ok := conn.(*net.TCPConn)
+	    // if err == nil && ok {
+	    //     // Successfully asserted to *net.TCPConn; can set keep-alive options
+	    //     tcpConn.SetKeepAlive(false)
+	    // } else {
+	    //     // The assertion failed; log the occurrence
+	    //     log.Println("weirdness in keepalive")
+	    // }
+
+
+        return &onCloseConn{Conn: conn}, nil
+    }
+
+    // Set the custom dial function for HTTP traffic
+    proxy.Tr = &http.Transport{Dial: customDial}//,DisableKeepAlives :true}
+    proxy.ConnectDial = customDial
+
+	//proxy.OnRequest().HandleConnect(goproxy.AlwaysMitm)
 	// Use a single handler function for all requests
 	proxy.OnRequest().DoFunc(
 		func(r *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *http.Response) {
@@ -55,12 +96,17 @@ func setupProxy() {
 		},
 	)
 
+	proxy.OnResponse().DoFunc(func(r*http.Response,ctx *goproxy.ProxyCtx)*http.Response {
+		log.Printf("Response made")
+		return r
+	})
+
 	log.Println("Starting proxy server on :8080...")
 	log.Fatal(http.ListenAndServe(":8080", proxy))
 }
 
 func setupCommandServer() {
-	vpnClient := NewOpenVPNClient() // Initialize your VPN client
+	vpnClient := NewOpenVPNClient(AUTH_PATH) // Initialize your VPN client
 
 	http.HandleFunc("/start-vpn-name", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -107,7 +153,7 @@ func setupCommandServer() {
 			return
 		}
 
-		configPath=filepath.Join(CONFIGS_DIR,configPath)
+		//configPath=filepath.Join(CONFIGS_DIR,configPath)
 
 		if err := vpnClient.Start(configPath); err != nil {
 			log.Printf("Failed to start VPN: %v", err)
@@ -135,8 +181,10 @@ func setupCommandServer() {
 		fmt.Fprintf(w, "VPN stopped")
 	})
 
-	log.Println("Starting command server on :8081...")
-	if err := http.ListenAndServe(":8081", nil); err != nil {
-		log.Fatalf("Failed to start command server: %v", err)
-	}
+	go func(){
+		log.Println("Starting command server on :8081...")
+		if err := http.ListenAndServe(":8081", nil); err != nil {
+			log.Fatalf("Failed to start command server: %v", err)
+		}
+	}()
 }
