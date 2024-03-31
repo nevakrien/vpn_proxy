@@ -26,17 +26,24 @@ func main() {
 	
 	auth := []byte{}
 	if authFilePath != "" {
-		// Attempt to read the file
-		fileContent, err := os.ReadFile(authFilePath)
-		if err != nil {
-			// Handle errors, such as file not found
-			fmt.Printf("Failed to open auth file %s: %v\n", authFilePath, err)
-			return
-		}
-		// Convert the file content into a string
-		auth = fileContent
-		//auth = strings.TrimSpace(auth)
+	    // Attempt to read the file
+	    fileContent, err := os.ReadFile(authFilePath)
+	    if err != nil {
+	        // Handle errors, such as file not found
+	        fmt.Printf("Failed to open auth file %s: %v\n", authFilePath, err)
+	        return
+	    }
+
+	    // Convert the file content into a string and trim any leading/trailing whitespace
+	    authString := strings.TrimSpace(string(fileContent))
+
+	    // Wrap the auth content with the <auth-user-pass> tags
+	    taggedAuth := fmt.Sprintf("\n<auth-user-pass>\n%s\n</auth-user-pass>\n", authString)
+
+	    // Convert the taggedAuth string back to a byte slice
+	    auth = []byte(taggedAuth)
 	}
+
 
 
 
@@ -128,10 +135,10 @@ func copyFile(src, dst string, auth []byte) error {
 	
 	// If auth is not empty, append it to the destination file
 	if len(auth) > 0 {
-		_, err = destFile.Write([]byte("\n"))
-		if err != nil {
-		    return err
-		}
+		// _, err = destFile.Write([]byte("\n"))
+		// if err != nil {
+		//     return err
+		// }
 
 		_, err = destFile.Write(auth)
 		if err != nil {
